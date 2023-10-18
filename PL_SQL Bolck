@@ -1,0 +1,50 @@
+SET SERVEROUTPUT ON
+DECLARE
+CURSOR TABLES_CURSOR IS SELECT * FROM USER_TABLES;
+CURSOR SEQUENCES_CURSOR IS SELECT * FROM USER_SEQUENCES;
+COLUM_ID_NAME VARCHAR2(100);
+MAX_ID NUMBER; COUNTER NUMBER := 1 ;
+MAX_ID_CHAR VARCHAR2(100);
+NUM_OF_PK_COLUMNS NUMBER;
+PK_DATATYPE VARCHAR2(100);
+SEQ_NAME VARCHAR2(100); TRIG_NAME VARCHAR2(100);
+BEGIN
+FOR EACH_SEQUENCE IN SEQUENCES_CURSOR LOOP
+EXECUTE IMMEDIATE 'DROP SEQUENCE ' || EACH_SEQUENCE.SEQUENCE_NAME || '';
+END LOOP;
+FOR EACH_TABLE IN TABLES_CURSOR LOOP
+SEQ_NAME := EACH_TABLE.TABLE_NAME || '_SEQ';
+TRIG_NAME := 'HR.' || EACH_TABLE.TABLE_NAME || '_TRIGGER'; --Fetch number of columns that formed the primary key
+SELECT COUNT(*)
+INTO NUM_OF_PK_COLUMNS
+FROM all_constraints cons, all_cons_columns cols
+WHERE cols.table_name = EACH_TABLE.TABLE_NAME
+AND cons.constraint_type = 'P' AND cons.constraint_name = cols.constraint_name
+AND cons.owner = cols.owner
+ORDER BY cols.table_name, cols.position;
+IF(NUM_OF_PK_COLUMNS = 1) THEN
+--Fetch the primary key column name
+SELECT cols.column_name
+INTO COLUM_ID_NAME
+FROM all_constraints cons, all_cons_columns cols
+WHERE cols.table_name = EACH_TABLE.TABLE_NAME
+AND cons.constraint_type = 'P' AND cons.constraint_name = cols.constraint_name
+AND cons.owner = cols.owner
+ORDER BY cols.table_name, cols.position; --Fetch the datatype of the primary key column
+SELECT DISTINCT(DATA_TYPE)
+INTO PK_DATATYPE
+FROM USER_TAB_COLUMNS
+WHERE COLUMN_NAME = COLUM_ID_NAME;
+IF PK_DATATYPE LIKE '%NUMBER%' THEN
+EXECUTE IMMEDIATE 'select NVL(MAX('||COLUM_ID_NAME||'), 0) from ' ||
+EACH_TABLE.TABLE_NAME || '' INTO MAX_ID;
+MAX_ID := MAX_ID + 1;
+EXECUTE IMMEDIATE 'CREATE SEQUENCE '|| SEQ_NAME ||' START WITH '|| MAX_ID ||' INCREMENT BY 1';
+EXECUTE IMMEDIATE 'CREATE OR REPLACE TRIGGER ' || TRIG_NAME || ' BEFORE INSERT ON ' ||
+EACH_TABLE.TABLE_NAME || ' FOR EACH ROW BEGIN :new.' || COLUM_ID_NAME || ' := ' ||
+SEQ_NAME || '.nextval; end;';
+END IF;
+END IF;
+END LOOP;
+DBMS_OUTPUT.PUT_LINE( 'Mission Done ' );
+END;
